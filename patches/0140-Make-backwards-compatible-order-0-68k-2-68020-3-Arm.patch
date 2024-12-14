@@ -1,0 +1,25 @@
+From 32e5ab323a38a0c09f826309377f74039a691014 Mon Sep 17 00:00:00 2001
+From: scrameta <scrameta@gmail.com>
+Date: Wed, 19 Jan 2022 20:51:27 +0100
+Subject: [PATCH 140/150] Make backwards compatible order 0:68k, 2:68020, 3:Arm
+
+---
+ rtl/cpu_wrapper.v | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/rtl/cpu_wrapper.v b/rtl/cpu_wrapper.v
+index 5c7b99b..85b7f23 100644
+--- a/rtl/cpu_wrapper.v
++++ b/rtl/cpu_wrapper.v
+@@ -170,7 +170,7 @@ always @* begin
+ 		fastchip_sel = cpu_req & !hybrid_cpu_addr_p[31:24];
+ 		fastchip_lw  = hybrid_longword;
+ 	end
+-	else if(cpucfg==2'b01) begin
++	else if(cpucfg==2'b11) begin
+ 		// TG68K
+ 		cpu_dout     = cpu_dout_p;
+ 		cpu_addr     = cpu_addr_p;
+-- 
+2.25.1
+

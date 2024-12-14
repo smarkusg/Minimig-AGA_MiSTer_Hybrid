@@ -1,0 +1,590 @@
+From bb940ea1d22ccf6c4e2c3d4e3ff9f4a155687678 Mon Sep 17 00:00:00 2001
+From: scrameta <scrameta@gmail.com>
+Date: Sat, 15 Jan 2022 15:56:46 +0100
+Subject: [PATCH 139/150] Add simple documentation for developers
+
+---
+ doc/hybrid/arm_examples/build           |   4 +
+ doc/hybrid/arm_examples/bustest.c       |  99 +++++++++++++++++
+ doc/hybrid/arm_examples/irqtest.c       | 141 ++++++++++++++++++++++++
+ doc/hybrid/arm_examples/mem_init.c      |  64 +++++++++++
+ doc/hybrid/arm_examples/mem_init.h      |  22 ++++
+ doc/hybrid/arm_examples/minimig_ioctl.h |   6 +
+ doc/hybrid/arm_examples/rtgtest.c       | 111 +++++++++++++++++++
+ doc/hybrid/hardware_developer_notes.txt |   6 +
+ doc/hybrid/software_developer_notes.txt |  54 +++++++++
+ 9 files changed, 507 insertions(+)
+ create mode 100755 doc/hybrid/arm_examples/build
+ create mode 100644 doc/hybrid/arm_examples/bustest.c
+ create mode 100644 doc/hybrid/arm_examples/irqtest.c
+ create mode 100644 doc/hybrid/arm_examples/mem_init.c
+ create mode 100644 doc/hybrid/arm_examples/mem_init.h
+ create mode 100644 doc/hybrid/arm_examples/minimig_ioctl.h
+ create mode 100644 doc/hybrid/arm_examples/rtgtest.c
+ create mode 100644 doc/hybrid/hardware_developer_notes.txt
+ create mode 100644 doc/hybrid/software_developer_notes.txt
+
+diff --git a/doc/hybrid/arm_examples/build b/doc/hybrid/arm_examples/build
+new file mode 100755
+index 0000000..9fd0d33
+--- /dev/null
++++ b/doc/hybrid/arm_examples/build
+@@ -0,0 +1,4 @@
++arm-linux-gnueabihf-gcc bustest.c mem_init.c -O3 -o bustest
++arm-linux-gnueabihf-gcc irqtest.c mem_init.c -O0 -g -o irqtest -lpthread
++arm-linux-gnueabihf-gcc rtgtest.c mem_init.c -O0 -g -o rtgtest 
++scp rtgtest bustest irqtest root@192.168.0.25:/media/fat/
+diff --git a/doc/hybrid/arm_examples/bustest.c b/doc/hybrid/arm_examples/bustest.c
+new file mode 100644
+index 0000000..9c76c9b
+--- /dev/null
++++ b/doc/hybrid/arm_examples/bustest.c
+@@ -0,0 +1,99 @@
++#include <stdio.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <time.h>
++#include <stdlib.h>
++
++#include "mem_init.h"
++
++void speedtest(char const * item, void * addr, unsigned long bytes)
++{
++	volatile unsigned char * byte_addr;
++	volatile unsigned short * word_addr;
++	volatile unsigned int * longword_addr;
++
++	clock_t pre,post;
++	double mb = ((double)bytes)/1024/1024;
++	printf("%s:%0.0fMB\n",item,mb);
++	// Byte read
++	pre = clock();
++	byte_addr = (unsigned char *) addr;
++	for (unsigned long i=0;i!=bytes;++i)
++	{
++		byte_addr[i];
++	}
++	post = clock();
++	clock_t byte_read = post-pre;
++	printf("%s:read 1+0:%fMB/s\n",item,mb/(((double)byte_read)/CLOCKS_PER_SEC));
++
++	// word read
++	pre = clock();
++	word_addr = (unsigned short *) addr;
++	unsigned long words = bytes/2;
++	for (unsigned long i=0;i!=words;++i)
++	{
++		word_addr[i];
++	}
++	post = clock();
++	clock_t word_read = post-pre;
++	printf("%s:read 2+0:%fMB/s\n",item,mb/(((double)word_read)/CLOCKS_PER_SEC));
++
++	// long read
++	pre = clock();
++	longword_addr = (unsigned int *) addr;
++	unsigned long longwords = bytes/4;
++	for (unsigned long i=0;i!=longwords;++i)
++	{
++		longword_addr[i];
++	}
++	post = clock();
++	clock_t longword_read = post-pre;
++	printf("%s:read 4+0:%fMB/s\n",item,mb/(((double)longword_read)/CLOCKS_PER_SEC));
++
++	// Byte write
++	pre = clock();
++	for (unsigned long i=0;i!=bytes;++i)
++	{
++		byte_addr[i]=0;
++	}
++	post = clock();
++	clock_t byte_write = post-pre;
++	printf("%s:write 1+0:%fMB/s\n",item,mb/(((double)byte_write)/CLOCKS_PER_SEC));
++
++	// Aligned word write
++	pre = clock();
++	for (unsigned long i=0;i!=words;++i)
++	{
++		word_addr[i]=0;
++	}
++	post = clock();
++	clock_t word_write = post-pre;
++	printf("%s:write 2+0:%fMB/s\n",item,mb/(((double)word_write)/CLOCKS_PER_SEC));
++
++	// Aligned long write
++	pre = clock();
++	for (unsigned long i=0;i!=longwords;++i)
++	{
++		longword_addr[i]=0;
++	}
++	post = clock();
++	clock_t longword_write = post-pre;
++	printf("%s:write 4+0:%fMB/s\n",item,mb/(((double)longword_write)/CLOCKS_PER_SEC));
++}
++
++int main(void)
++{
++    mem_init(1);
++
++    speedtest("chipram",chipram_addr,chipram_bytes);
++    speedtest("fastram",z3fastram_addr,z3fastram_bytes);
++    speedtest("rom",rom_addr_orig,rom_bytes);
++    speedtest("rom_copy",rom_addr_fast,rom_bytes);
++    speedtest("rtg",rtgcard_addr,rtgcard_bytes);
++    speedtest("irq",irqs,4);
++    return 0;
++}
++
++
+diff --git a/doc/hybrid/arm_examples/irqtest.c b/doc/hybrid/arm_examples/irqtest.c
+new file mode 100644
+index 0000000..4ae8029
+--- /dev/null
++++ b/doc/hybrid/arm_examples/irqtest.c
+@@ -0,0 +1,141 @@
++#define _GNU_SOURCE
++#include <unistd.h>
++#include <stdio.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <time.h>
++#include <stdlib.h>
++#include <pthread.h>
++#include <string.h>
++#include <sys/ioctl.h>
++
++#include "mem_init.h"
++#include "minimig_ioctl.h"
++
++const unsigned int INTENAR=0xdff01c; 
++const unsigned int INTREQR=0xdff01e;
++const unsigned int INTENA =0xdff09a; // bit 14 global enable
++const unsigned int INTREQ =0xdff09c; // Need to set bit 15 to if I want to set to 1 or 0
++
++const unsigned short INT_SET         = 0x8000;
++const unsigned short INT_INTEN       = 0x4000;
++const unsigned short INT_EXTER       = 0x2000;
++const unsigned short INT_DSKSYN      = 0x1000;
++const unsigned short INT_RBF         = 0x0800;
++const unsigned short INT_AUD3        = 0x0400;
++const unsigned short INT_AUD2        = 0x0200;
++const unsigned short INT_AUD1        = 0x0100;
++const unsigned short INT_AUD0        = 0x0080;
++const unsigned short INT_BLIT        = 0x0040;
++const unsigned short INT_VERTB       = 0x0020;
++const unsigned short INT_COPER       = 0x0010;
++const unsigned short INT_PORTS       = 0x0008;
++const unsigned short INT_SOFT        = 0x0004;
++const unsigned short INT_DSKBLK      = 0x0002;
++const unsigned short INT_TBE         = 0x0001;
++
++clock_t volatile pre=0;
++
++unsigned short hpeek(int hwaddr)
++{
++	int hwaddrraw = hwaddr;
++	hwaddr = hwaddr - 0x200000;
++	unsigned short volatile * a = (unsigned short *)(((unsigned char *)hardware_addr)+hwaddr);
++	unsigned short res = *a;
++	res = ((res&0xff)<<8) | (res>>8);
++	//printf("Peeking:%x:%x\n",hwaddrraw,(int)res);
++	return res;
++}
++
++void hpoke(int hwaddr, unsigned short val)
++{
++	val = ((val&0xff)<<8) | (val>>8);
++	//printf("Poking:%x:%x\n",hwaddr,(int)val);
++	hwaddr = hwaddr - 0x200000;
++	unsigned short volatile * a = (unsigned short *)(((unsigned char *)hardware_addr)+hwaddr);
++	*a = val;
++}
++
++double elapsed[256];
++int elpos = 0;
++
++static void * mythreadfunc(void * opaque)
++{
++    static int first = 1;
++    if (first)
++    {
++	    first =0;
++	    fprintf(stderr,"ioctl thread:%d\n",gettid());
++    }
++
++    int fd = open ("/sys/kernel/debug/minimig_irq/ioctl_dev",O_RDONLY);
++    int current1 = *(int volatile *)irqs;
++    printf("Waiting for IRQs:%x\n",current1);
++    while (1)
++    {
++	int res = ioctl(fd, MINIMIG_IOC_WAIT_IRQ, 1);
++	if (res<0)
++		perror("arg:");
++
++    	int current = *(int volatile *)irqs;
++	//fprintf(stderr,"i");
++	  //  FILE *logfile = qemu_log_lock();
++	//    qemu_fprintf(logfile,"IRQ on ioctl:%d:%ld\n",current,clock());
++	   // qemu_log_unlock(logfile);
++        int irq_val = 7&(~current);
++	clock_t post = clock();
++	elapsed[elpos++] = ((double)post-pre)/CLOCKS_PER_SEC;
++	//printf("IRQ:%d:%f\n", irq_val,((double)post-pre)/CLOCKS_PER_SEC);
++
++	pre = 0;
++    }
++    return 0;
++}
++
++int main(void)
++{
++	mem_init(0);
++  	pthread_t * mythread = malloc(sizeof(pthread_t));
++  	memset(mythread,0,sizeof(pthread_t));
++	pthread_attr_t attr;
++	pthread_attr_init (&attr);
++	pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
++	pthread_attr_setschedpolicy (&attr, SCHED_FIFO);
++	struct sched_param param;
++	pthread_attr_getschedparam (&attr, &param);
++	param.sched_priority = 99;
++	pthread_attr_setschedparam (&attr, &param);
++  	pthread_create(mythread,&attr,&mythreadfunc,0);
++	sleep(1);
++
++	hpoke(INTREQ,0);
++	hpoke(INTENA,0x7fff);
++	printf("ENA:%x\n",(int)hpeek(INTENAR));
++	hpoke(INTENA,INT_SET|INT_INTEN|INT_SOFT);
++	printf("ENA:%x\n",(int)hpeek(INTENAR));
++	elpos = 0;
++	for (int i=0;i!=10;++i)
++	{
++		// Raise an interrupt, time how long until I receive it
++		pre = clock();
++		hpoke(INTREQ,INT_SET|INT_SOFT); // enable irq
++		while (pre);
++		pre = clock();
++		hpoke(INTREQ,INT_SOFT); // clear irq
++		while (pre);
++
++		usleep(100000);
++	}
++	for (int i=0;i!=elpos;++i)
++	{
++		printf("%d:%f\n",i,elapsed[i]);
++	}
++
++	hpoke(INTREQ,INT_SOFT); // clear irq
++	hpoke(INTENA,0x7fff);
++	return 0;
++}
++
++
+diff --git a/doc/hybrid/arm_examples/mem_init.c b/doc/hybrid/arm_examples/mem_init.c
+new file mode 100644
+index 0000000..7d02bec
+--- /dev/null
++++ b/doc/hybrid/arm_examples/mem_init.c
+@@ -0,0 +1,64 @@
++#include <stdio.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <time.h>
++#include <stdlib.h>
++
++int chipram_bytes;
++void * chipram_addr;
++
++int z3fastram_bytes;
++unsigned int z3fast_physical;
++void * z3fastram_addr;
++
++int rtgcard_bytes;
++void * rtgcard_addr;
++
++int hardware_bytes;
++void * hardware_addr;
++
++int rom_bytes;
++void * rom_addr_orig;
++void * rom_addr_fast;
++void * irqs;
++
++void mem_init(int copy_rom)
++{
++    unsigned int hpsbridgeaddr = 0xc0000000;
++    int fduncached = open("/dev/mem",(O_RDWR|O_SYNC));
++    int fdcached = open("/sys/kernel/debug/minimig_irq/mmap_cached",(O_RDWR));
++
++    chipram_bytes = 2*1024*1024;
++    chipram_addr = mmap(NULL,chipram_bytes,(PROT_READ|PROT_WRITE),MAP_SHARED,fduncached,hpsbridgeaddr+0); //cached?
++
++    z3fastram_bytes = 384*1024*1024;
++    unsigned int z3fast_physical = 0x28000000; // physical ddr address, shared with f2h bridge
++    z3fastram_addr = mmap(NULL,z3fastram_bytes,(PROT_READ|PROT_WRITE),MAP_SHARED,fdcached,z3fast_physical);
++
++    rtgcard_bytes = 16*1024*1024;
++    unsigned int rtg_physical = 0x27000000; // physical ddr address, shared with f2h bridge
++    rtgcard_addr = mmap(NULL,rtgcard_bytes,(PROT_READ|PROT_WRITE),MAP_SHARED,fdcached,rtg_physical);
++
++    hardware_bytes =  13*1024*1024;
++    hardware_addr = mmap(NULL,hardware_bytes,(PROT_READ|PROT_WRITE),MAP_SHARED,fduncached,hpsbridgeaddr + 0x200000);
++
++    rom_bytes = 1*1024*1024;
++    rom_addr_orig = mmap(NULL,rom_bytes,(PROT_READ|PROT_WRITE),MAP_SHARED,fdcached,hpsbridgeaddr+0xf00000);
++    rom_addr_fast = malloc(rom_bytes);
++    if (copy_rom)
++    {
++	for (int i=0;i!=rom_bytes;i+=4)
++	{
++		    *((unsigned int *)(rom_addr_fast+i)) = *((unsigned int *)(rom_addr_orig+i));
++    	}
++    }
++    unsigned int irqoffset = 0x1000000;
++
++    irqs = mmap(NULL,1,(PROT_READ|PROT_WRITE),MAP_SHARED,fduncached,hpsbridgeaddr+irqoffset); //cached?
++
++    printf("chipram:%p fastram:%p rtg:%p hardware:%p rom:%p irqs:%p\n",chipram_addr,z3fastram_addr,rtgcard_addr,hardware_addr,rom_addr_orig,irqs);
++}
++
++
+diff --git a/doc/hybrid/arm_examples/mem_init.h b/doc/hybrid/arm_examples/mem_init.h
+new file mode 100644
+index 0000000..31d46b7
+--- /dev/null
++++ b/doc/hybrid/arm_examples/mem_init.h
+@@ -0,0 +1,22 @@
++#pragma once
++
++extern int chipram_bytes;
++extern void * chipram_addr;
++
++extern int z3fastram_bytes;
++extern unsigned int z3fast_physical;
++extern void * z3fastram_addr;
++
++extern int rtgcard_bytes;
++extern void * rtgcard_addr;
++
++extern int hardware_bytes;
++extern void * hardware_addr;
++
++extern int rom_bytes;
++extern void * rom_addr_orig;
++extern void * rom_addr_fast;
++extern void * irqs;
++
++void mem_init(int copy_rom);
++
+diff --git a/doc/hybrid/arm_examples/minimig_ioctl.h b/doc/hybrid/arm_examples/minimig_ioctl.h
+new file mode 100644
+index 0000000..81419e4
+--- /dev/null
++++ b/doc/hybrid/arm_examples/minimig_ioctl.h
+@@ -0,0 +1,6 @@
++#include <linux/ioctl.h>
++#include <linux/types.h>
++
++#define MINIMIG_IOCTL_BASE 'M'
++
++#define MINIMIG_IOC_WAIT_IRQ     _IOR(MINIMIG_IOCTL_BASE, 0, int)
+diff --git a/doc/hybrid/arm_examples/rtgtest.c b/doc/hybrid/arm_examples/rtgtest.c
+new file mode 100644
+index 0000000..b5b62dc
+--- /dev/null
++++ b/doc/hybrid/arm_examples/rtgtest.c
+@@ -0,0 +1,111 @@
++#include <stdio.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <time.h>
++#include <stdlib.h>
++#include <byteswap.h>
++
++#include "mem_init.h"
++
++unsigned int rtg_register_base = 0xb80100;
++const int REG_ADDRESS = 0;
++const int REG_FORMAT  = 4;
++const int REG_ENABLE  = 6;
++const int REG_HSIZE   = 8;
++const int REG_VSIZE   = 10;
++const int REG_STRIDE  = 12;
++const int REG_ID      = 14;
++const int REG_PALETTE = 0x300;
++
++unsigned short hpeek(int hwaddr)
++{
++	int hwaddrraw = hwaddr;
++	hwaddr = hwaddr - 0x200000;
++	unsigned short volatile * a = (unsigned short *)(((unsigned char *)hardware_addr)+hwaddr);
++	unsigned short res = *a;
++	res = ((res&0xff)<<8) | (res>>8);
++	//printf("Peeking:%x:%x\n",hwaddrraw,(int)res);
++	return res;
++}
++
++unsigned int hpeekl(int hwaddr)
++{
++	int hwaddrraw = hwaddr;
++	hwaddr = hwaddr - 0x200000;
++	unsigned int volatile * a = (unsigned int *)(((unsigned char *)hardware_addr)+hwaddr);
++	unsigned int res = *a;
++	res = bswap_32(res);
++	//printf("Peeking:%x:%x\n",hwaddrraw,(int)res);
++	return res;
++}
++
++void hpoke(int hwaddr, unsigned short val)
++{
++	val = ((val&0xff)<<8) | (val>>8);
++	//printf("Poking:%x:%x\n",hwaddr,(int)val);
++	hwaddr = hwaddr - 0x200000;
++	unsigned short volatile * a = (unsigned short *)(((unsigned char *)hardware_addr)+hwaddr);
++	*a = val;
++}
++
++void hpokel(int hwaddr, unsigned int val)
++{
++	val = bswap_32(val);
++	//printf("Poking:%x:%x\n",hwaddr,(int)val);
++	hwaddr = hwaddr - 0x200000;
++	unsigned int volatile * a = (unsigned int *)(((unsigned char *)hardware_addr)+hwaddr);
++	*a = val;
++}
++
++void dump_rtg_regs()
++{
++	unsigned int addr = hpeekl(rtg_register_base+REG_ADDRESS);
++	unsigned short format = hpeek(rtg_register_base+REG_FORMAT);
++	unsigned short enable = hpeek(rtg_register_base+REG_ENABLE);
++	unsigned short hsize = hpeek(rtg_register_base+REG_HSIZE);
++	unsigned short vsize = hpeek(rtg_register_base+REG_VSIZE);
++	unsigned short stride = hpeek(rtg_register_base+REG_STRIDE);
++	unsigned short id = hpeek(rtg_register_base+REG_ID);
++
++	printf("Addr  :%d\n",addr);
++	printf("Format:%d\n",(int)format);
++	printf("Enable:%d\n",(int)enable);
++	printf("Hsize :%d\n",(int)hsize);
++	printf("Vsize :%d\n",(int)vsize);
++	printf("Stride:%d\n",(int)stride);
++	printf("Id    :%d\n",(int)id);
++}
++
++void set_rtg_mode()
++{
++	hpokel(rtg_register_base+REG_ADDRESS,0x2700000);
++	hpoke(rtg_register_base+REG_FORMAT,0);
++	hpoke(rtg_register_base+REG_ENABLE,1);
++	hpoke(rtg_register_base+REG_HSIZE,800);
++	hpoke(rtg_register_base+REG_VSIZE,600);
++	hpoke(rtg_register_base+REG_STRIDE,800*4);
++}
++
++int main(void)
++{
++    mem_init(1);
++
++/*    speedtest("chipram",chipram_addr,chipram_bytes);
++    speedtest("fastram",z3fastram_addr,z3fastram_bytes);
++    speedtest("rom",rom_addr_orig,rom_bytes);
++    speedtest("rom_copy",rom_addr_fast,rom_bytes);
++    speedtest("rtg",rtgcard_addr,rtgcard_bytes);
++    speedtest("irq",irqs,4);*/
++
++    dump_rtg_regs();
++
++    set_rtg_mode();
++
++    dump_rtg_regs();
++
++    return 0;
++}
++
++
+diff --git a/doc/hybrid/hardware_developer_notes.txt b/doc/hybrid/hardware_developer_notes.txt
+new file mode 100644
+index 0000000..e26b253
+--- /dev/null
++++ b/doc/hybrid/hardware_developer_notes.txt
+@@ -0,0 +1,6 @@
++See software_developer_notes.txt for an overview first.
++
++The avalon bridges are exposed via qsys. The hps_fpga_bridge.qsys lives in sys. This puts the two avalon interfaces onto the HPS bus. Since MiSTer has used non-public interface ip from qsys, parts of the output need patching after creating verilog. This is done using hps_fpga_bridge.patch. Then I just add the synthesis .qip to the project instead.
++
++The cpu_wrapper has been modified to connect the avalon interface as a cpu. So you can now select FX68 (0), TG68K 020 (1) and Arm (2). 
++
+diff --git a/doc/hybrid/software_developer_notes.txt b/doc/hybrid/software_developer_notes.txt
+new file mode 100644
+index 0000000..d039097
+--- /dev/null
++++ b/doc/hybrid/software_developer_notes.txt
+@@ -0,0 +1,54 @@
++Github projects:
++https://github.com/scrameta/MiSTer_Hybrid_Support (release scripts and binaries)
++https://github.com/scrameta/Minimig-AGA_MiSTer_Hybrid (core)
++https://github.com/scrameta/Main_MiSTer_Hybrid (modifications to start hybrid emulation)
++https://github.com/scrameta/qemu_MiSTer_Hybrid
++https://github.com/scrameta/Musashi_MiSTer_Hybrid
++https://github.com/scrameta/MiSTer_Hybrid_Kernel_Module
++
++Overview of hardware
++There is an HPS-FPGA bridge inside the FPGA. This measn that on the FPGA we can build some custom logic and make it available on the Arm cpu bus. This custom logic is implemented as an 'avalon slave'. In the modified minimig core there are two of these slaves, which can be mapped into the arm memory space:
++i) arm_avalon: 16MB window into the amiga memory, including hardware regions. 16-bit wide at present, though byte and longword accesses can be transparently done. This region is only active when 68Arm is selected in the core. 
++ii)arm_irq_avalon: 1 byte window to cpu irq flags. Bits 0-2: IPL, bit 3: reset
++
++There is also an irq bridge, allowing FPGA logic to raise IRQs on the ARM. This avoids having to poll arm_irq_avalon. There is an interrupt on every ipl change or on system reset.
++
++Finally there is some ram that minimig uses. The board has 1GB of ram, of which 512MB is exposed to linux and the other 512MB isn't. The second 512MB is exposed to both Linux and to the FPGA. In it we have the framebuffer for the scalar and the 384MB of fast ram.
++
++Memory regions
++hps bridge base : 0xc0000000
++arm_avalon      : hps bridge base + 0  (16MB big)
++	Within this its the amiga memory map - chip ram and chipset
++	So e.g. rom starts at 0xf00000 and chip ram at 0x000000 (well, rom initially on cold boot etc)
++arm_irq_avalon  : hps bridge base + 0x1000000 (1 byte)
++rtg base        : 0x27000000 (8MB)
++fast ram base   : 0x28000000 (384MB)
++
++Kernel support
++We need a kernel module to handle the irq and expose it as an ioctl.
++We also need a kernel module to enable caching for the rtg and fast ram. I think, I couldn't find any user space apis.
++These are both handled by the minimigirq.ko module.
++I'm not a kernel dev so made the simplest I could, using debugfs!
++Note that it needs an entry in the device tree for its configuration.
++
++For mmap use there are a few devices that can be used just like /dev/mem, to specify the caching mode.
++/sys/kernel/debug/minimig_irq/mmap_writecombined
++/sys/kernel/debug/minimig_irq/mmap_noncached
++/sys/kernel/debug/minimig_irq/mmap_cached
++/sys/kernel/debug/minimig_irq/mmap_dmacoherent
++I use mmap_cached for fast ram and everything else /dev/mem (or mmap_uncached)
++
++The irq ioctl can be made on
++/sys/kernel/debug/minimig_irq/ioctl_dev
++For the define to use it:
++#include <linux/ioctl.h>
++#include <linux/types.h>
++#define MINIMIG_IOCTL_BASE 'M'
++#define MINIMIG_IOC_WAIT_IRQ     _IOR(MINIMIG_IOCTL_BASE, 0, int)
++
++JIT issues
++The amiga remaps the rom initially 0x000000 then maps it out later in boot. Anything compiled needs to be invalidated. I did this by trapping cia access.
++
++QEMU issues
++It is written with the assumption of a modern OS, which has code and data in different pages by design. The Amiga OS does not do this, so we need to patch it. I did this by patching AllocMem to return 4k aligned and using StackAttack to relocate the stack.
++
+-- 
+2.25.1
+

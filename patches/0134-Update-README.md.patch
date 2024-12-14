@@ -1,0 +1,52 @@
+From 5075ba9864c49ffb55935ce46b0b9a6abd4567e5 Mon Sep 17 00:00:00 2001
+From: scrameta <31708982+scrameta@users.noreply.github.com>
+Date: Sat, 15 Jan 2022 10:18:23 +0100
+Subject: [PATCH 134/150] Update README.md
+
+Add very brief note about hybrid
+---
+ README.md | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index 6a4680c..06c6850 100644
+--- a/README.md
++++ b/README.md
+@@ -16,7 +16,7 @@ The minimig-MiSTer variant in this repository has been upgraded with [AGA chipse
+ * chipRAM : 0.5MB - 2.0MB
+ * slowRAM : 0.0MB - 1.5MB
+ * fastRAM : 0.0MB - 384MB
+-* CPU core : 68000, 68020
++* CPU core : 68000, 68020, 68Arm (qemu or musashi etc)
+ * kickstart : 1.2 - 3.1 (256kB, 512kB & 1MB kickstart ROMs currently supported)
+ * HRTmon with custom registers mirror
+ * floppy disks : 1-4 floppies (supports ADF floppy image format), with normal & turbo speeds
+@@ -44,6 +44,16 @@ Adjustment is initiated from OSD menu. Keyboard control:
+ 
+ Positions are saved in the configuration file. Up to 64 different resolutions can be adjusted.
+ 
++### Hybrid CPU
++
++You need a patched CPU emulator and a patched Mister binary to use this.
++There are some all in one setups here in the .zst files:
++http://www.64kib.com/mister_hybrid_files/
++Extract the .zst on your own box, then the .tar on the mister when in /media/fat
++
++Main discussion thread:
++https://misterfpga.org/viewtopic.php?f=4&t=2397
++
+ ### Shared folder
+ 
+ All required files (and sources) are in extra/MiSTer_share.lha
+@@ -151,6 +161,8 @@ Copyright © 2005 - 2015 Dennis van Weeren, Jakub Bednarski, Sascha Boing, A.M.
+ 
+ Copyright © 2017 - 2020 Sorgelig (mister.devel@gmail.com)
+ 
++Copyright © 2021 Mark Watson (scrameta@gmail.com)
++
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+-- 
+2.25.1
+
