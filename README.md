@@ -1,3 +1,14 @@
+fork: https://github.com/scrameta/MiSTer_Hybrid_Support
+
+rebuild for current core minimig mister 13.12.2024 and MiSter.
+add qemu and kernel patch.
+
+see more: 
+
+https://misterfpga.org/viewtopic.php?t=2397
+
+![](https://github.com/smarkusg/Minimig-AGA_MiSTer_Hybrid/blob/master/extra/minimighyb.jpg)
+
 # Minimig-AGA_MiSTer
 
 This is a port of the minimig core to the [MiSTer board](https://github.com/MiSTer-devel).
