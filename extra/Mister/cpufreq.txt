@@ -1,0 +1,9 @@
+Mister kenrel  have enable CONFIG_CPU_FREQ=y
+https://github.com/MiSTer-devel/Linux-Kernel_MiSTer/blob/f9c64d8cd656ea4bef714c5accfbf699fd12b768/arch/arm/configs/MiSTer_defconfig#L479
+
+
+
+The default value is 800
+optione 400, 800, 1000, 1200
+# For 1.2 GHz
+echo "1200000" > "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
